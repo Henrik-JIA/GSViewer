@@ -11,6 +11,8 @@ import sys
 import argparse
 import ctypes
 from render.renderer_ogl import OpenGLRenderer, GaussianRenderBase
+
+from gui.scene_environment_control import scene_environment_control_ui
 from gui.camera_control import camera_control_ui
 from gui.gs_elements_control import gs_elements_control_ui
 from gui.render_boundary_control import render_boundary_control_ui 
@@ -42,6 +44,8 @@ g_show_camera_control = False
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "Normal", "Billboard Normal", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 9
 
+g_background_color = [0.0, 0.0, 0.0, 1.0]  # 初始化背景颜色为黑色，不透明
+g_show_scene_control = False  # 控制是否显示场景环境控制UI
 
 # 初始化渲染包围盒边界相关变量
 g_show_render_boundary_control = False
@@ -147,7 +151,8 @@ def main(args):
         g_render_mode, g_render_mode_tables, \
         dc_scale_factor, extra_scale_factor, g_rgb_factor, g_rot_modifier, g_light_rotation, \
         g_show_render_boundary_control, g_enable_render_boundary_aabb, g_enable_render_boundary_obb, use_axis_for_rotation, g_cube_min, g_cube_max, g_cube_rotation, tmp_cube_min, tmp_cube_max, tmp_cube_rotation, \
-        show_axes, export_path, export_status
+        show_axes, export_path, export_status, \
+        g_background_color, g_show_scene_control
         
     imgui.create_context()
     # 如果命令行参数中包含--hidpi，则启用HiDPI缩放
@@ -194,7 +199,7 @@ def main(args):
         impl.process_inputs()
         imgui.new_frame()
         
-        gl.glClearColor(0, 0, 0, 1.0)
+        gl.glClearColor(*g_background_color)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
         update_camera_pose_lazy()
@@ -208,6 +213,9 @@ def main(args):
                 clicked, g_show_gs_elements_control = imgui.menu_item(
                     "Show GS Elements Control", None, g_show_gs_elements_control
                 )
+                clicked, g_show_scene_control = imgui.menu_item(
+                    "Show Scene Environment Control", None, g_show_scene_control
+                )
                 clicked, g_show_render_boundary_control = imgui.menu_item(
                     "Show Render Boundary", None, g_show_render_boundary_control
                 )
@@ -219,6 +227,10 @@ def main(args):
                 )
                 imgui.end_menu()
             imgui.end_main_menu_bar()
+        
+        # 场景环境控制UI
+        if g_show_scene_control:
+            g_background_color = scene_environment_control_ui(g_show_scene_control, g_background_color)
         
         # 显示GS元素控制UI
         if g_show_gs_elements_control:
