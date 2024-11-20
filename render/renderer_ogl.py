@@ -9,6 +9,7 @@ try:
 except:
     wglSwapIntervalEXT = None
 
+from .primitives.axes import AxesHelper
 
 _sort_buffer_xyz = None
 _sort_buffer_gausid = None  # used to tell whether gaussian is reloaded
@@ -134,9 +135,14 @@ class OpenGLRenderer(GaussianRenderBase):
     def __init__(self, w, h, camera):
         super().__init__()
         self.camera = camera  # 添加相机属性
-        self.axis_needs_update = True  # 添加标志以跟踪轴是否需要更新
-        self.show_axes = True  # 添加标志以控制轴的显示
+        self.view_matrix = camera.get_view_matrix()  # 添加视图矩阵成员
+        self.proj_matrix = camera.get_project_matrix()  # 添加投影矩阵成员
         gl.glViewport(0, 0, w, h)
+
+        # 初始化坐标轴辅助器
+        self.axes_helper = AxesHelper(length=1.0)
+        self.show_axes = True  # 添加标志以控制轴的显示
+
         self.program = util.load_shaders('shaders/gau_vert.glsl', 'shaders/gau_frag.glsl')
         self.program_boundary_box = util.load_shaders('shaders/boundary_box_vert.glsl','shaders/boundary_box_frag.glsl')
         self.program_axes = util.load_shaders('shaders/axes_vert.glsl', 'shaders/axes_frag.glsl')  # 加载轴的着色器
@@ -171,9 +177,6 @@ class OpenGLRenderer(GaussianRenderBase):
         self.box_vertices_count_triangles = 0
         self.box_vertices_count_lines = 0
 
-        # 初始化轴的VBO和VAO
-        self.init_axes()
-
         # opengl settings
         gl.glDisable(gl.GL_CULL_FACE)
         gl.glEnable(gl.GL_BLEND)
@@ -195,37 +198,6 @@ class OpenGLRenderer(GaussianRenderBase):
         gl.glDeleteBuffers(1, [self.ebo_box_lines])
         gl.glDeleteVertexArrays(1, [self.vao_box])
 
-    def init_axes(self):
-        # 轴的顶点数据
-        self.axis_vertices = np.array([
-            # X轴 - 红色
-            0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-            1.0, 0.0, 0.0, 1.0, 0.0, 0.0,
-            # Y轴 - 绿色
-            0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
-            0.0, 1.0, 0.0, 0.0, 1.0, 0.0,
-            # Z轴 - 蓝色
-            0.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-            0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
-        ], dtype=np.float32)
-
-        self.axis_vao = gl.glGenVertexArrays(1)
-        self.axis_vbo = gl.glGenBuffers(1)
-
-        gl.glBindVertexArray(self.axis_vao)
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.axis_vbo)
-        gl.glBufferData(gl.GL_ARRAY_BUFFER, self.axis_vertices.nbytes, self.axis_vertices, gl.GL_STATIC_DRAW)
-
-        # 位置属性
-        gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * self.axis_vertices.itemsize, ctypes.c_void_p(0))
-        gl.glEnableVertexAttribArray(0)
-        # 颜色属性
-        gl.glVertexAttribPointer(1, 3, gl.GL_FLOAT, gl.GL_FALSE, 6 * self.axis_vertices.itemsize, ctypes.c_void_p(3 * self.axis_vertices.itemsize))
-        gl.glEnableVertexAttribArray(1)
-
-        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
-        gl.glBindVertexArray(0)
-
     def update_vsync(self):
         if wglSwapIntervalEXT is not None:
             wglSwapIntervalEXT(1 if self.reduce_updates else 0)
@@ -236,9 +208,12 @@ class OpenGLRenderer(GaussianRenderBase):
         self.gaussians = gaus
         # load gaussian geometry
         gaussian_data = gaus.flat()
-        self.gau_bufferid = util.set_storage_buffer_data(self.program, "gaussian_data", gaussian_data, 
-                                                         bind_idx=0,
-                                                         buffer_id=self.gau_bufferid)
+        self.gau_bufferid = util.set_storage_buffer_data(
+            self.program, 
+            "gaussian_data", 
+            gaussian_data, 
+            bind_idx=0,
+            buffer_id=self.gau_bufferid)
         util.set_uniform_1int(self.program, gaus.sh_dim, "sh_dim")
 
     # 针对高斯元对象调整
@@ -261,10 +236,14 @@ class OpenGLRenderer(GaussianRenderBase):
         util.set_uniform_v3(self.program, lightRotation, "light_rotation")
 
     def sort_and_update(self):
-        index = _sort_gaussian(self.gaussians, self.camera.get_view_matrix())
-        self.index_bufferid = util.set_storage_buffer_data(self.program, "gi", index, 
-                                                           bind_idx=1,
-                                                           buffer_id=self.index_bufferid)
+        index = _sort_gaussian(self.gaussians, self.view_matrix)
+        self.index_bufferid = util.set_storage_buffer_data(
+            self.program, 
+            "gi", 
+            index, 
+            bind_idx=1,
+            buffer_id=self.index_bufferid
+        )
         return
    
     def set_scale_modifier(self, modifier):
@@ -280,16 +259,16 @@ class OpenGLRenderer(GaussianRenderBase):
         gl.glViewport(0, 0, w, h)
 
     def update_camera_pose(self):
-        view_mat = self.camera.get_view_matrix()
-        util.set_uniform_mat4(self.program, view_mat, "view_matrix")
+        self.view_matrix = self.camera.get_view_matrix()
+        util.set_uniform_mat4(self.program, self.view_matrix, "view_matrix")
         util.set_uniform_v3(self.program, self.camera.position, "cam_pos")
-        self.axis_needs_update = True  # 每次更新相机姿态时，设置轴需要更新
+        self.axes_helper.needs_update = True  # 每次更新相机姿态时，设置轴需要更新
 
     def update_camera_intrin(self):
-        proj_mat = self.camera.get_project_matrix()
-        util.set_uniform_mat4(self.program, proj_mat, "projection_matrix")
+        self.proj_matrix = self.camera.get_project_matrix()
+        util.set_uniform_mat4(self.program, self.proj_matrix, "projection_matrix")
         util.set_uniform_v3(self.program, self.camera.get_htanfovxy_focal(), "hfovxy_focal")
-        self.axis_needs_update = True
+        self.axes_helper.needs_update = True # 直接使用 AxesHelper 的更新标志
 
     # 包围盒
     # Set the center point coordinates
@@ -319,12 +298,10 @@ class OpenGLRenderer(GaussianRenderBase):
 
     def draw_boundary_box(self, points_center: list, point_cubeMin, point_cubeMax, cube_rotation):
         R = util.convert_euler_angles_to_rotation_matrix(cube_rotation)
-        view_mat = self.camera.get_view_matrix()
-        proj_mat = self.camera.get_project_matrix()
 
         # 设置uniforms
-        util.set_uniform_mat4(self.program_boundary_box, view_mat, "view_matrix")
-        util.set_uniform_mat4(self.program_boundary_box, proj_mat, "projection_matrix")
+        util.set_uniform_mat4(self.program_boundary_box, self.view_matrix, "view_matrix")
+        util.set_uniform_mat4(self.program_boundary_box, self.proj_matrix, "projection_matrix")
         util.set_uniform_mat3(self.program_boundary_box, R, "cube_rotation") 
         util.set_uniform_v3(self.program_boundary_box, points_center, "points_center")
         util.set_uniform_v3(self.program_boundary_box, point_cubeMin, "cubeMin")
@@ -383,26 +360,6 @@ class OpenGLRenderer(GaussianRenderBase):
         # 切换包围盒显示状态
         self.switch_show_boundary_box = not self.switch_show_boundary_box
 
-    def draw_axes(self, length=1.0, line_width=3.5):
-        if self.axis_needs_update:
-            view_mat = self.camera.get_view_matrix()
-            proj_mat = self.camera.get_project_matrix()
-            util.set_uniform_mat4(self.program_axes, view_mat, "view_matrix")
-            util.set_uniform_mat4(self.program_axes, proj_mat, "projection_matrix")
-            self.axis_needs_update = False
-        gl.glUseProgram(self.program_axes)
-        gl.glLineWidth(line_width)
-        gl.glBindVertexArray(self.axis_vao)
-        # 设置model_matrix
-        model_mat = np.eye(4, dtype=np.float32)
-        model_mat[0, 0] = length  # 设置X轴长度
-        model_mat[1, 1] = length  # 设置Y轴长度
-        model_mat[2, 2] = length  # 设置Z轴长度
-        util.set_uniform_mat4(self.program_axes, model_mat, "model_matrix")
-        gl.glDrawArrays(gl.GL_LINES, 0, 6)
-        gl.glBindVertexArray(0)
-        gl.glLineWidth(1.0)
-
     def draw(self):
         # 主渲染高斯
         gl.glUseProgram(self.program)
@@ -432,4 +389,11 @@ class OpenGLRenderer(GaussianRenderBase):
 
         # 绘制XYZ轴
         if self.show_axes:
-            self.draw_axes()
+            length=1.0
+            line_width=3.5
+            self.axes_helper.draw(
+                view_matrix=self.view_matrix,
+                projection_matrix=self.proj_matrix,
+                scale=length,
+                line_width=line_width
+            )

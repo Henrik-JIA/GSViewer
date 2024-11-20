@@ -46,6 +46,9 @@ g_render_mode = 9
 
 g_background_color = [0.0, 0.0, 0.0, 1.0]  # 初始化背景颜色为黑色，不透明
 g_show_scene_control = False  # 控制是否显示场景环境控制UI
+g_directional_light_direction = [0.0, -1.0, 0.0]  # 初始定向光源方向：从上方向下
+g_directional_light_color = [1.0, 1.0, 1.0, 1.0]  # 初始定向光源颜色：白色
+g_directional_light_intensity = 1.0  # 初始定向光源强度
 
 # 初始化渲染包围盒边界相关变量
 g_show_render_boundary_control = False
@@ -152,8 +155,9 @@ def main(args):
         dc_scale_factor, extra_scale_factor, g_rgb_factor, g_rot_modifier, g_light_rotation, \
         g_show_render_boundary_control, g_enable_render_boundary_aabb, g_enable_render_boundary_obb, use_axis_for_rotation, g_cube_min, g_cube_max, g_cube_rotation, tmp_cube_min, tmp_cube_max, tmp_cube_rotation, \
         show_axes, export_path, export_status, \
-        g_background_color, g_show_scene_control
-        
+        g_background_color, g_show_scene_control, \
+        g_directional_light_direction, g_directional_light_color, g_directional_light_intensity
+
     imgui.create_context()
     # 如果命令行参数中包含--hidpi，则启用HiDPI缩放
     if args.hidpi:
@@ -199,7 +203,8 @@ def main(args):
         impl.process_inputs()
         imgui.new_frame()
         
-        gl.glClearColor(*g_background_color)
+        gl.glClearColor(g_background_color[0], g_background_color[1], 
+                       g_background_color[2], g_background_color[3])
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
         update_camera_pose_lazy()
@@ -230,7 +235,13 @@ def main(args):
         
         # 场景环境控制UI
         if g_show_scene_control:
-            g_background_color = scene_environment_control_ui(g_show_scene_control, g_background_color)
+            g_background_color, g_directional_light_direction, g_directional_light_color, g_directional_light_intensity = scene_environment_control_ui(
+                g_show_scene_control, 
+                g_background_color,
+                g_directional_light_direction,
+                g_directional_light_color,
+                g_directional_light_intensity
+            )
         
         # 显示GS元素控制UI
         if g_show_gs_elements_control:
