@@ -44,6 +44,8 @@ class Camera:
 
         self.use_orthographic = False  # 添加正射视角属性
         self.ortho_scale = 5.0  # 添加正射视角缩放因子
+        
+        self.invert_mouse = True  # 是否反转鼠标方向（True=拖拽方向与模型移动方向一致）
 
     def _global_rot_mat(self):
         x = np.array([1, 0, 0])
@@ -106,18 +108,21 @@ class Camera:
         yoffset = self.last_y - ypos
         self.last_x = xpos
         self.last_y = ypos
+        
+        # 方向因子：invert_mouse=True 时反转方向
+        dir_factor = -1 if self.invert_mouse else 1
 
         if self.is_leftmouse_pressed:
             if self.use_free_rotation:
-                yaw_quat = glm.angleAxis(glm.radians(xoffset * self.sensitivities['rot'] * 20), glm.vec3(0, 1, 0))
-                pitch_quat = glm.angleAxis(glm.radians(yoffset * self.sensitivities['rot'] * 20), glm.vec3(1, 0, 0))
+                yaw_quat = glm.angleAxis(glm.radians(dir_factor * xoffset * self.sensitivities['rot'] * 20), glm.vec3(0, 1, 0))
+                pitch_quat = glm.angleAxis(glm.radians(-dir_factor * yoffset * self.sensitivities['rot'] * 20), glm.vec3(1, 0, 0))
                 roll_quat = glm.angleAxis(glm.radians(self.roll), glm.vec3(0, 0, 1))  # 处理 roll 角度
                 self.rotation = glm.normalize(yaw_quat * self.rotation * pitch_quat * roll_quat)
                 if self.use_custom_rotation_center:
                     self.position = self.rotation_center - glm.vec3(glm.mat4_cast(self.rotation) * glm.vec4(0, 0, self.target_dist, 0))
             else:
-                self.yaw += xoffset * self.sensitivities['rot']
-                self.pitch += yoffset * self.sensitivities['rot']
+                self.yaw += dir_factor * xoffset * self.sensitivities['rot']
+                self.pitch -= dir_factor * yoffset * self.sensitivities['rot']
                 self.pitch = np.clip(self.pitch, -np.pi / 2, np.pi / 2)
                 front = np.array([np.cos(self.yaw) * np.cos(self.pitch), 
                                 np.sin(self.pitch), np.sin(self.yaw) * 
@@ -138,10 +143,10 @@ class Camera:
                 right = glm.vec3(rotation_matrix * glm.vec4(1, 0, 0, 0))
                 cam_up = glm.vec3(rotation_matrix * glm.vec4(0, 1, 0, 0))
 
-                self.position -= right * xoffset * self.sensitivities['trans']
-                self.target -= right * xoffset * self.sensitivities['trans']
-                self.position -= cam_up * yoffset * self.sensitivities['trans']
-                self.target -= cam_up * yoffset * self.sensitivities['trans']
+                self.position += dir_factor * right * xoffset * self.sensitivities['trans']
+                self.target += dir_factor * right * xoffset * self.sensitivities['trans']
+                self.position += dir_factor * cam_up * yoffset * self.sensitivities['trans']
+                self.target += dir_factor * cam_up * yoffset * self.sensitivities['trans']
 
                 self.is_pose_dirty = True
             else:
@@ -149,17 +154,17 @@ class Camera:
                 front = front / np.linalg.norm(front)
                 right = np.cross(self.up, front)
                 if self.use_custom_rotation_center:
-                    self.position += right * xoffset * self.sensitivities['trans']
-                    self.rotation_center += right * xoffset * self.sensitivities['trans']
+                    self.position -= dir_factor * right * xoffset * self.sensitivities['trans']
+                    self.rotation_center -= dir_factor * right * xoffset * self.sensitivities['trans']
                     cam_up = np.cross(right, front)
-                    self.position += cam_up * yoffset * self.sensitivities['trans']
-                    self.rotation_center += cam_up * yoffset * self.sensitivities['trans']
+                    self.position -= dir_factor * cam_up * yoffset * self.sensitivities['trans']
+                    self.rotation_center -= dir_factor * cam_up * yoffset * self.sensitivities['trans']
                 else:
-                    self.position += right * xoffset * self.sensitivities['trans']
-                    self.target += right * xoffset * self.sensitivities['trans']
+                    self.position -= dir_factor * right * xoffset * self.sensitivities['trans']
+                    self.target -= dir_factor * right * xoffset * self.sensitivities['trans']
                     cam_up = np.cross(right, front)
-                    self.position += cam_up * yoffset * self.sensitivities['trans']
-                    self.target += cam_up * yoffset * self.sensitivities['trans']
+                    self.position -= dir_factor * cam_up * yoffset * self.sensitivities['trans']
+                    self.target -= dir_factor * cam_up * yoffset * self.sensitivities['trans']
                 self.is_pose_dirty = True
 
     def process_wheel(self, dx, dy):

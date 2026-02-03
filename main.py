@@ -44,7 +44,8 @@ g_show_camera_control = False
 g_render_mode_tables = ["Gaussian Ball", "Flat Ball", "Billboard", "Depth", "Normal", "Billboard Normal", "SH:0", "SH:0~1", "SH:0~2", "SH:0~3 (default)"]
 g_render_mode = 9
 
-g_background_color = [0.0, 0.0, 0.0, 1.0]  # 初始化背景颜色为黑色，不透明
+g_background_color = [1.0, 1.0, 1.0, 1.0]
+# g_background_color = [0.0, 0.0, 0.0, 1.0]  # 初始化背景颜色为黑色，不透明
 g_show_scene_control = False  # 控制是否显示场景环境控制UI
 g_directional_light_direction = [0.0, -1.0, 0.0]  # 初始定向光源方向：从上方向下
 g_directional_light_color = [1.0, 1.0, 1.0, 1.0]  # 初始定向光源颜色：白色
