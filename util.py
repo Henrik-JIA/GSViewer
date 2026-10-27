@@ -48,8 +48,10 @@ class Camera:
         self.invert_mouse = True  # 是否反转鼠标方向（True=拖拽方向与模型移动方向一致）
 
     def _global_rot_mat(self):
-        x = np.array([1, 0, 0])
-        z = np.cross(x, self.up)
+        up = self.up / np.linalg.norm(self.up)
+        # 参考轴与 up 接近平行时换一个，避免叉乘退化
+        x = np.array([1.0, 0.0, 0.0]) if abs(up[0]) < 0.9 else np.array([0.0, 0.0, 1.0])
+        z = np.cross(x, up)
         z = z / np.linalg.norm(z)
         x = np.cross(self.up, z)
         return np.stack([x, self.up, z], axis=-1)
@@ -114,16 +116,20 @@ class Camera:
 
         if self.is_leftmouse_pressed:
             if self.use_free_rotation:
-                yaw_quat = glm.angleAxis(glm.radians(dir_factor * xoffset * self.sensitivities['rot'] * 20), glm.vec3(0, 1, 0))
-                pitch_quat = glm.angleAxis(glm.radians(-dir_factor * yoffset * self.sensitivities['rot'] * 20), glm.vec3(1, 0, 0))
-                roll_quat = glm.angleAxis(glm.radians(self.roll), glm.vec3(0, 0, 1))  # 处理 roll 角度
-                self.rotation = glm.normalize(yaw_quat * self.rotation * pitch_quat * roll_quat)
-                if self.use_custom_rotation_center:
-                    self.position = self.rotation_center - glm.vec3(glm.mat4_cast(self.rotation) * glm.vec4(0, 0, self.target_dist, 0))
+                # 轨迹球旋转：在相机局部坐标系中，绕垂直于拖拽方向的轴旋转。
+                # 原实现固定绕世界 Y 轴偏航，当场景"上方向"不是 Y 轴或俯仰接近 ±90° 时，
+                # 水平拖拽退化为绕视线自转，导致部分视角无法到达。
+                drag_len = np.hypot(xoffset, yoffset)
+                if drag_len > 1e-6:
+                    angle = glm.radians(drag_len * self.sensitivities['rot'] * 20)
+                    axis = glm.normalize(glm.vec3(-dir_factor * yoffset, dir_factor * xoffset, 0.0))
+                    self.rotation = glm.normalize(self.rotation * glm.angleAxis(angle, axis))
             else:
                 self.yaw += dir_factor * xoffset * self.sensitivities['rot']
                 self.pitch -= dir_factor * yoffset * self.sensitivities['rot']
-                self.pitch = np.clip(self.pitch, -np.pi / 2, np.pi / 2)
+                # 留出余量，避免视线与 up 平行导致 lookAt 退化
+                eps = 1e-3
+                self.pitch = np.clip(self.pitch, -np.pi / 2 + eps, np.pi / 2 - eps)
                 front = np.array([np.cos(self.yaw) * np.cos(self.pitch), 
                                 np.sin(self.pitch), np.sin(self.yaw) * 
                                 np.cos(self.pitch)])
@@ -209,6 +215,22 @@ class Camera:
             self.rotation = glm.normalize(flip_quat * self.rotation)
         else:
             self.up = -self.up
+        self.is_pose_dirty = True
+
+    def dolly_zoom(self, new_fovy):
+        """改变透视强度（滑动变焦）：调整 fov 的同时反向调整相机距离，保持旋转中心处的画面大小不变。"""
+        new_fovy = float(np.clip(new_fovy, np.radians(1.0), np.radians(150.0)))
+        scale = np.tan(self.fovy / 2) / np.tan(new_fovy / 2)
+        center = self.rotation_center if self.use_custom_rotation_center else self.target
+        if self.use_free_rotation:
+            # 自由旋转模式下相机位置由 target_dist 推导
+            self.target_dist = float(self.target_dist * scale)
+        else:
+            offset = self.position - center
+            self.position = (center + offset * scale).astype(np.float32)
+            self.target_dist = float(np.linalg.norm(offset) * scale)
+        self.fovy = new_fovy
+        self.is_intrin_dirty = True
         self.is_pose_dirty = True
 
     def update_target_distance(self):

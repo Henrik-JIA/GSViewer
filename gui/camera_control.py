@@ -39,6 +39,16 @@ def camera_control_ui(g_camera, g_show_camera_control):
                 if changed:
                     g_camera.is_intrin_dirty = True
 
+                # 透视强度：调整视角的同时自动调整距离，主体大小基本不变
+                changed, persp_deg = imgui.slider_float(
+                    "persp", float(np.degrees(g_camera.fovy)), 1.0, 150.0, "perspective = %.1f deg"
+                )
+                if changed:
+                    g_camera.dolly_zoom(np.radians(persp_deg))
+                imgui.same_line()
+                if imgui.button(label="Reset persp"):
+                    g_camera.dolly_zoom(np.pi / 2)
+
                 changed, g_camera.target_dist = imgui.slider_float(
                     "t", g_camera.target_dist, 1., 10., "target dist = %.3f"
                 )
